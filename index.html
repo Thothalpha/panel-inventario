@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel de inventario</title>
+<link rel="stylesheet" href="static/styles.css">
+<script src="static/vendor/chart.umd.min.js"></script>
+<script src="static/vendor/marked.min.js"></script>
+<script src="static/vendor/purify.min.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Inventario</h1>
+    <span class="sub">Votum Labs</span>
+  </div>
+  <div class="status">
+    <span id="source" class="badge">…</span>
+    <span id="updated" class="muted"></span>
+    <button id="refresh" class="btn ghost" title="Volver a leer Odoo">↻ Actualizar</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="resumen" aria-selected="true">Resumen</button>
+  <button role="tab" data-tab="productos">Productos</button>
+  <button role="tab" data-tab="alertas">Alertas <span id="alert-count" class="count"></span></button>
+  <button role="tab" data-tab="asistente">Asistente IA</button>
+  <button role="tab" data-tab="config">Configuración</button>
+</nav>
+
+<div id="warnings"></div>
+<div id="review-wrap"><section id="review" class="review" hidden>
+  <div class="card-head"><h2>Guía para revisar la demo</h2><button class="btn ghost" id="review-close">Ocultar</button></div>
+  <p>Es una vista previa con <b>datos ficticios</b>: lo que importa es si el panel muestra lo que necesitas para decidir compras y fabricación. Al revisarlo, piensa en:</p>
+  <ol>
+    <li><b>Resumen</b>: ¿son estos los indicadores que miras cada semana? ¿Falta alguno (p. ej., nivel de servicio, días de stock por línea, compras del mes)?</li>
+    <li><b>Productos</b>: pulsa uno (p. ej., CRN-901). ¿La previsión, la proyección y la cantidad sugerida te sirven para pedir?</li>
+    <li><b>Alertas</b>: ¿cubren los casos que te preocupan? ¿Quién debería recibirlas y por qué canal: email diario, Telegram, WhatsApp…?</li>
+    <li><b>Asistente IA</b>: prueba las preguntas de ejemplo. ¿Qué otras preguntas le harías?</li>
+    <li>¿Necesitas <b>exportar a Excel</b>, separar por <b>almacén</b>, ver <b>órdenes de fabricación</b> o generar el <b>pedido de compra</b> en Odoo desde aquí?</li>
+  </ol>
+  <p class="small muted">En esta demo la IA da respuestas de ejemplo y lo que guardes (alertas personalizadas, «marcar vista») solo se queda en tu navegador.</p>
+</section></div>
+
+<main>
+  <!-- RESUMEN -->
+  <section id="tab-resumen" class="tab active">
+    <div class="kpis" id="kpis"></div>
+
+    <div class="card ai-card">
+      <div class="card-head">
+        <h2>Resumen con IA</h2>
+        <div class="row">
+          <span id="summary-meta" class="muted"></span>
+          <button id="gen-summary" class="btn primary">Generar resumen</button>
+        </div>
+      </div>
+      <div id="summary" class="md muted">Pulsa «Generar resumen»: la IA revisa el inventario, consulta Odoo si lo necesita y te dice qué pedir, qué riesgos hay y dónde hay dinero parado.</div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h2>Cobertura de stock</h2><p class="muted small">Productos con demanda, según cuántos días cubre el stock a mano</p><div class="chart-box"><canvas id="ch-coverage"></canvas></div></div>
+      <div class="card"><h2>Alertas activas por tipo</h2><p class="muted small">Sin contar las marcadas como vistas</p><div class="chart-box"><canvas id="ch-alerts"></canvas></div></div>
+      <div class="card"><h2>Valor de stock por categoría</h2><p class="muted small">€ a coste estándar</p><div class="chart-box"><canvas id="ch-categ"></canvas></div></div>
+      <div class="card"><h2>Matriz ABC / XYZ</h2><p class="muted small">ABC = peso en el consumo anual en €; XYZ = regularidad de la demanda (X estable, Z errática). Celda: nº de productos · valor de stock</p><div id="abcxyz"></div></div>
+    </div>
+
+    <div class="card">
+      <h2>Mayor demanda prevista (30 días)</h2>
+      <div class="table-wrap"><table id="top-demand" class="tbl"></table></div>
+    </div>
+  </section>
+
+  <!-- PRODUCTOS -->
+  <section id="tab-productos" class="tab">
+    <div class="filters">
+      <input id="f-text" type="search" placeholder="Buscar referencia o nombre…">
+      <select id="f-categ"><option value="">Todas las categorías</option></select>
+      <select id="f-abc"><option value="">ABC</option><option>A</option><option>B</option><option>C</option></select>
+      <select id="f-state">
+        <option value="">Todos</option>
+        <option value="riesgo">Riesgo de rotura</option>
+        <option value="pedir">Con pedido sugerido</option>
+        <option value="exceso">Exceso (&gt; 365 d)</option>
+        <option value="parado">Sin movimiento</option>
+        <option value="stock">Con stock</option>
+      </select>
+      <span id="f-count" class="muted"></span>
+    </div>
+    <div class="card flush"><div class="table-wrap"><table id="products" class="tbl sortable"></table></div></div>
+  </section>
+
+  <!-- ALERTAS -->
+  <section id="tab-alertas" class="tab">
+    <div class="filters">
+      <div id="sev-chips" class="chips"></div>
+      <select id="a-kind"><option value="">Todos los tipos</option></select>
+      <label class="check"><input type="checkbox" id="a-acked"> Mostrar vistas</label>
+      <button id="ack-all" class="btn ghost">Marcar visibles como vistas</button>
+    </div>
+    <div id="alert-list" class="alert-list"></div>
+
+    <div class="card">
+      <div class="card-head"><h2>Mis alertas personalizadas</h2></div>
+      <div class="ai-rule">
+        <label for="nl-rule" class="small muted">Descríbela y la IA la prepara:</label>
+        <div class="row">
+          <input id="nl-rule" type="text" placeholder="p. ej. Avísame si las cajas de Cronidol bajan de 5.000 unidades">
+          <button id="nl-rule-btn" class="btn primary">Crear con IA</button>
+        </div>
+        <div id="nl-rule-out"></div>
+      </div>
+      <details class="manual">
+        <summary>Crear manualmente</summary>
+        <form id="rule-form" class="rule-form">
+          <input name="name" placeholder="Nombre de la alerta" required>
+          <select name="scope_type"><option value="all">Todos los productos</option><option value="category">Categorías</option><option value="products">Referencias</option></select>
+          <input name="scope_values" placeholder="Categorías o referencias, separadas por comas">
+          <select name="metric" id="rule-metric"></select>
+          <select name="op"><option>&lt;</option><option>&lt;=</option><option>&gt;</option><option>&gt;=</option><option>==</option></select>
+          <input name="threshold" type="number" step="any" placeholder="Umbral" required>
+          <select name="severity"><option value="critica">Crítica</option><option value="alta">Alta</option><option value="media" selected>Media</option><option value="baja">Baja</option></select>
+          <input name="description" placeholder="Acción recomendada (opcional)">
+          <button class="btn primary">Guardar</button>
+        </form>
+      </details>
+      <div id="rules"></div>
+    </div>
+  </section>
+
+  <!-- ASISTENTE -->
+  <section id="tab-asistente" class="tab">
+    <div class="card chat">
+      <div id="chat-log" class="chat-log">
+        <div class="msg assistant md">
+          <p>Hola. Pregúntame lo que quieras del inventario: consulto el panel y, si hace falta, lanzo la consulta directamente a Odoo (solo lectura). También puedo prepararte alertas.</p>
+        </div>
+      </div>
+      <div class="suggestions" id="suggestions"></div>
+      <form id="chat-form" class="chat-form">
+        <textarea id="chat-input" rows="2" placeholder="Escribe tu pregunta…"></textarea>
+        <button class="btn primary" id="chat-send">Enviar</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- CONFIG -->
+  <section id="tab-config" class="tab">
+    <div class="card">
+      <h2>Parámetros de previsión y alertas</h2>
+      <form id="settings-form" class="settings"></form>
+    </div>
+    <div class="card muted small">
+      <h2>Cómo se calcula</h2>
+      <ul>
+        <li><b>Demanda</b>: entregas a clientes + consumo en fabricación (movimientos hechos en Odoo), menos devoluciones, por semana.</li>
+        <li><b>Previsión</b>: Holt amortiguado para demanda regular (con estacionalidad si hay ≥ 18 meses y mejora el backtest) o Croston-SBA si es intermitente. Precisión = 1 − WAPE en bloques de 4 semanas sobre las últimas 12 semanas reservadas.</li>
+        <li><b>Cobertura</b> = stock a mano / demanda diaria prevista. <b>Stock de seguridad</b> = z · σ semanal · √(plazo/7). <b>Punto de pedido</b> = demanda diaria · plazo + seguridad.</li>
+        <li><b>Cantidad sugerida</b> = punto de pedido + demanda del periodo de revisión − stock previsto, redondeada al mínimo del proveedor y al múltiplo de la regla.</li>
+        <li>El panel solo <b>lee</b> Odoo. Las alertas personalizadas y las marcadas como vistas se guardan en el propio panel.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<!-- Detalle de producto -->
+<dialog id="detail">
+  <div class="detail-head">
+    <div><h2 id="d-title"></h2><span id="d-sub" class="muted"></span></div>
+    <button class="btn ghost" id="d-close" aria-label="Cerrar">✕</button>
+  </div>
+  <div id="d-kpis" class="kpis small"></div>
+  <div class="card"><h3>Demanda semanal y previsión</h3><p class="muted small" id="d-method"></p><div class="chart-box tall"><canvas id="ch-demand"></canvas></div></div>
+  <div class="card"><h3>Proyección de stock</h3><p class="muted small">Stock a mano − demanda prevista + compras pendientes en su fecha. Líneas: punto de pedido y stock de seguridad.</p><div class="chart-box"><canvas id="ch-proj"></canvas></div></div>
+  <div class="grid2" id="d-tables"></div>
+  <div class="row end"><button class="btn" id="d-ask">Preguntar a la IA por este producto</button></div>
+</dialog>
+
+<script>window.STATIC_DEMO = true;</script>
+<script src="static/app.js"></script>
+</body>
+</html>
