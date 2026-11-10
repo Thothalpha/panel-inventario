@@ -18,6 +18,7 @@
   <div class="status">
     <span id="source" class="badge">…</span>
     <span id="updated" class="muted"></span>
+    <button id="conn-chip" class="btn ghost conn-chip" hidden title="Conexión con Odoo y proveedor de IA"></button>
     <button id="refresh" class="btn ghost" title="Volver a leer Odoo">↻ Actualizar</button>
   </div>
 </header>
@@ -35,6 +36,7 @@
   <div class="card-head"><h2>Guía para revisar la demo</h2><button class="btn ghost" id="review-close">Ocultar</button></div>
   <p>Es una vista previa con <b>datos ficticios</b>: lo que importa es si el panel muestra lo que necesitas para decidir compras y fabricación. Al revisarlo, piensa en:</p>
   <ol>
+    <li><b>Configuración</b> (botón «Odoo · …» arriba a la derecha): es la pantalla que verás la primera vez en la app de tu Mac. ¿Se entiende? ¿Qué proveedor de IA usarías?</li>
     <li><b>Resumen</b>: ¿son estos los indicadores que miras cada semana? ¿Falta alguno (p. ej., nivel de servicio, días de stock por línea, compras del mes)?</li>
     <li><b>Productos</b>: pulsa uno (p. ej., CRN-901). ¿La previsión, la proyección y la cantidad sugerida te sirven para pedir?</li>
     <li><b>Alertas</b>: ¿cubren los casos que te preocupan? ¿Quién debería recibirlas y por qué canal: email diario, Telegram, WhatsApp…?</li>
@@ -148,6 +150,10 @@
 
   <!-- CONFIG -->
   <section id="tab-config" class="tab">
+    <div class="card" id="conn-card" hidden>
+      <div class="card-head"><h2>Conexiones</h2><button class="btn" id="conn-edit">Cambiar conexión</button></div>
+      <div class="conn-grid" id="conn-summary"></div>
+    </div>
     <div class="card">
       <h2>Parámetros de previsión y alertas</h2>
       <form id="settings-form" class="settings"></form>
@@ -164,6 +170,90 @@
     </div>
   </section>
 </main>
+
+<!-- Configuración inicial (bienvenida) -->
+<dialog id="setup" aria-labelledby="setup-title">
+  <form id="setup-form" method="dialog" novalidate>
+    <div class="setup-head">
+      <div>
+        <h2 id="setup-title">Configura tu panel</h2>
+        <p class="muted small" id="setup-sub">Conecta tu Odoo y elige el modelo de IA del asistente. Solo se hace una vez.</p>
+      </div>
+      <ol class="stepper" aria-label="Pasos">
+        <li data-step="1" aria-current="step"><span>1</span> Odoo</li>
+        <li data-step="2"><span>2</span> Asistente IA</li>
+      </ol>
+    </div>
+    <div class="demo-note" id="setup-demo-note" hidden>
+      <b>Vista previa:</b> en esta demo los campos llevan valores de ejemplo y no se guarda ni se envía nada.
+      En la app de tu Mac introducirás tus datos reales.
+    </div>
+
+    <!-- Paso 1: Odoo -->
+    <fieldset class="step" data-step="1">
+      <legend class="sr">Conexión con Odoo</legend>
+      <label>Dirección de Odoo
+        <input name="odoo_url" type="url" placeholder="https://miempresa.odoo.com" autocomplete="url">
+      </label>
+      <label><span>Base de datos <span class="muted">(opcional)</span></span>
+        <input name="odoo_db" placeholder="Se detecta sola en la mayoría de casos">
+      </label>
+      <label>Usuario (login)
+        <input name="odoo_user" type="email" placeholder="nombre@empresa.com" autocomplete="username">
+        <span class="hint">Suele ser tu correo, pero es el campo «Login» de tu usuario en Odoo.</span>
+      </label>
+      <label>API key de Odoo
+        <span class="pw"><input name="odoo_key" type="password" autocomplete="off" spellcheck="false"><button type="button" class="link" data-toggle-pw>Mostrar</button></span>
+        <span class="hint">En Odoo: tu nombre (arriba a la derecha) → Mi perfil / Preferencias → Seguridad de la cuenta → <b>Nueva API key</b>.
+          Elige una duración larga: cuando caduca, el panel deja de conectar.</span>
+      </label>
+      <div class="test-row">
+        <button type="button" class="btn" id="test-odoo">Probar conexión</button>
+        <span class="test-msg" id="test-odoo-msg" role="status"></span>
+      </div>
+      <p class="small muted">El panel solo <b>lee</b> Odoo: no puede crear ni modificar nada. Verás lo mismo que tu usuario puede ver en Odoo.</p>
+    </fieldset>
+
+    <!-- Paso 2: IA -->
+    <fieldset class="step" data-step="2" hidden>
+      <legend class="sr">Proveedor de IA</legend>
+      <div class="providers" role="radiogroup" aria-label="Proveedor de IA">
+        <label class="provider"><input type="radio" name="provider" value="openrouter" checked>
+          <span><b>OpenRouter</b> <span class="tag">Recomendado</span><br><span class="small muted">Una sola clave para modelos de OpenAI, Anthropic, Google y otros. Puedes cambiar de modelo cuando quieras.</span></span></label>
+        <label class="provider"><input type="radio" name="provider" value="openai">
+          <span><b>OpenAI</b><br><span class="small muted">Los modelos de ChatGPT, con tu propia cuenta de la API de OpenAI.</span></span></label>
+        <label class="provider"><input type="radio" name="provider" value="anthropic">
+          <span><b>Anthropic</b><br><span class="small muted">Modelos Claude, con tu cuenta de la API de Anthropic.</span></span></label>
+        <label class="provider"><input type="radio" name="provider" value="custom">
+          <span><b>Otro compatible con OpenAI</b><br><span class="small muted">Por ejemplo, un modelo local con Ollama o LM Studio.</span></span></label>
+      </div>
+      <div class="provider-help small" id="provider-help"></div>
+      <label id="base-url-row" hidden>URL base de la API
+        <input name="base_url" type="url" placeholder="http://localhost:11434/v1">
+      </label>
+      <label>Clave de la API
+        <span class="pw"><input name="ai_key" type="password" autocomplete="off" spellcheck="false"><button type="button" class="link" data-toggle-pw>Mostrar</button></span>
+      </label>
+      <div class="test-row">
+        <button type="button" class="btn" id="test-ai">Probar y cargar modelos</button>
+        <span class="test-msg" id="test-ai-msg" role="status"></span>
+      </div>
+      <label>Modelo
+        <select name="model" id="model-select" disabled><option>Pulsa «Probar y cargar modelos»</option></select>
+        <span class="hint">Solo se muestran modelos que pueden usar herramientas: el asistente las necesita para consultar Odoo.</span>
+      </label>
+      <p class="small muted">Las claves se guardan en el <b>Llavero de macOS</b>. Las consultas van directamente de tu Mac a Odoo y al proveedor que elijas, sin pasar por ningún otro servidor.
+        Lo que preguntes al asistente, y los datos que consulte para responder, se envían a ese proveedor.</p>
+    </fieldset>
+
+    <div class="setup-actions">
+      <button type="button" class="btn ghost" id="setup-back" hidden>← Atrás</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="setup-skip">Ver la demo sin configurar</button>
+      <button type="button" class="btn primary" id="setup-next">Siguiente →</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- Detalle de producto -->
 <dialog id="detail">

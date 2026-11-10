@@ -559,5 +559,121 @@ $("#settings-form").addEventListener("submit", async e => {
 /* ---------------------------------------------------------------- inicio */
 $("#refresh").addEventListener("click", () => load(true));
 try { const t = localStorage.getItem("inv-tab"); if (t && $("#tab-" + t)) showTab(t); } catch {}
+/* ---------------------------------------------------------------- configuración inicial
+   En la demo estática: valores de ejemplo, claves bloqueadas y nada se guarda ni se envía
+   (solo se recuerda en el navegador qué proveedor/modelo se eligió, sin claves).
+   En la app de macOS esta misma pantalla guardará las claves en el Llavero. */
+const PROVIDERS = {
+  openrouter: { name: "OpenRouter", base: "https://openrouter.ai/api/v1",
+    help: "<p>Crea la clave en <b>openrouter.ai → Keys</b> y añade créditos (pago por uso).</p><p>Recomendado: en <b>Settings → Privacy</b>, excluye los proveedores que puedan guardar o entrenar con tus datos.</p>" },
+  openai: { name: "OpenAI", base: "https://api.openai.com/v1",
+    help: "<p>Crea la clave en <b>platform.openai.com → API keys</b> y añade saldo en <b>Billing</b>.</p><p><b>Ojo:</b> la suscripción de ChatGPT (Plus/Pro) <b>no incluye la API</b>; se paga aparte, por uso.</p>" },
+  anthropic: { name: "Anthropic", base: "https://api.anthropic.com",
+    help: "<p>Crea la clave en <b>console.anthropic.com → API Keys</b> y añade saldo (pago por uso).</p>" },
+  custom: { name: "Compatible con OpenAI", base: "",
+    help: "<p>Para servidores que imitan la API de OpenAI, por ejemplo <b>Ollama</b> (<code>http://localhost:11434/v1</code>) o <b>LM Studio</b>. Un modelo local no envía datos fuera del Mac, pero necesita un equipo potente y un modelo mediano o grande para usar bien las herramientas.</p>" },
+};
+const DEMO_MODELS = {
+  anthropic: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+  default: ["Modelo de ejemplo 1 · admite herramientas", "Modelo de ejemplo 2 · admite herramientas"],
+};
+const setup = { step: 1 };
+const sf = () => $("#setup-form");
+
+function setupFill() {
+  const f = sf().elements;
+  if (STATIC) {
+    $("#setup-demo-note").hidden = false;
+    f.odoo_url.value = "https://miempresa.odoo.com";
+    f.odoo_user.value = "ruben@ejemplo.com";
+    f.odoo_key.value = "demo-0000-0000-0000-0000";
+    f.ai_key.value = "sk-demo-000000000000000000";
+    [f.odoo_url, f.odoo_db, f.odoo_user, f.odoo_key, f.ai_key].forEach(i => i.readOnly = true);
+  }
+  const saved = LS.get("connection", null);
+  if (saved?.provider) sf().querySelector(`input[name=provider][value=${saved.provider}]`).checked = true;
+  providerChanged();
+}
+function providerChanged() {
+  const f = sf().elements, p = f.provider.value;
+  $("#provider-help").innerHTML = PROVIDERS[p].help;
+  $("#base-url-row").hidden = p !== "custom";
+  f.ai_key.placeholder = p === "custom" ? "Opcional en modelos locales" : "Pega aquí tu clave";
+  const sel = $("#model-select");
+  sel.disabled = true;
+  sel.innerHTML = `<option>Pulsa «Probar y cargar modelos»</option>`;
+  $("#test-ai-msg").textContent = ""; $("#test-ai-msg").className = "test-msg";
+}
+function setupStep(n) {
+  setup.step = n;
+  $$("#setup .step").forEach(s => s.hidden = +s.dataset.step !== n);
+  $$("#setup .stepper li").forEach(li => {
+    const k = +li.dataset.step;
+    li.toggleAttribute("aria-current", k === n);
+    if (k === n) li.setAttribute("aria-current", "step");
+    li.classList.toggle("done", k < n);
+  });
+  $("#setup-back").hidden = n === 1;
+  $("#setup-next").textContent = n === 1 ? "Siguiente →" : "Guardar y entrar";
+}
+function openSetup() {
+  setupFill(); setupStep(1);
+  if (!$("#setup").open) $("#setup").showModal();
+}
+async function fakeTest(btn, msg, okText) {
+  btn.disabled = true; msg.className = "test-msg"; msg.innerHTML = `<span class="spinner"></span>Comprobando…`;
+  await new Promise(r => setTimeout(r, 900));
+  msg.className = "test-msg ok"; msg.textContent = okText; btn.disabled = false;
+}
+$("#test-odoo").addEventListener("click", () => fakeTest($("#test-odoo"), $("#test-odoo-msg"),
+  STATIC ? "Conexión simulada (demo): Odoo 18 · usuario de ejemplo · solo lectura" : "Conectado"));
+$("#test-ai").addEventListener("click", async () => {
+  const p = sf().elements.provider.value;
+  await fakeTest($("#test-ai"), $("#test-ai-msg"),
+    STATIC ? `Clave aceptada (simulado). En la app se cargarán los modelos de tu cuenta de ${PROVIDERS[p].name}.` : "Clave aceptada");
+  const sel = $("#model-select");
+  sel.innerHTML = (DEMO_MODELS[p] || DEMO_MODELS.default).map(m => `<option>${esc(m)}</option>`).join("");
+  sel.disabled = false;
+});
+sf().addEventListener("change", e => { if (e.target.name === "provider") providerChanged(); });
+$$("#setup [data-toggle-pw]").forEach(b => b.addEventListener("click", () => {
+  const i = b.previousElementSibling; i.type = i.type === "password" ? "text" : "password";
+  b.textContent = i.type === "password" ? "Mostrar" : "Ocultar";
+}));
+$("#setup-back").addEventListener("click", () => setupStep(1));
+$("#setup-skip").addEventListener("click", () => { LS.set("setup-seen", true); $("#setup").close(); });
+$("#setup-next").addEventListener("click", () => {
+  if (setup.step === 1) return setupStep(2);
+  const f = sf().elements, sel = $("#model-select");
+  if (sel.disabled) {
+    $("#test-ai-msg").className = "test-msg err";
+    $("#test-ai-msg").textContent = "Prueba la clave para cargar los modelos y elige uno.";
+    return;
+  }
+  // Nunca se guardan claves en el navegador: solo el proveedor y el modelo elegidos
+  LS.set("connection", { provider: f.provider.value, model: sel.value, odoo: f.odoo_url.value, user: f.odoo_user.value, at: new Date().toISOString() });
+  LS.set("setup-seen", true);
+  $("#setup").close();
+  renderConnection();
+});
+function renderConnection() {
+  const c = LS.get("connection", null);
+  const chip = $("#conn-chip");
+  chip.hidden = !STATIC;
+  chip.classList.toggle("off", !c);
+  chip.textContent = c ? `Odoo · ${PROVIDERS[c.provider].name}` : "Configurar conexión";
+  $("#conn-card").hidden = !STATIC;
+  $("#conn-summary").innerHTML = c ? `
+    <div class="kpi"><div class="label">Odoo</div><div class="value">${esc(c.odoo)}</div><div class="hint">${esc(c.user)} · solo lectura${STATIC ? " · ejemplo" : ""}</div></div>
+    <div class="kpi"><div class="label">Asistente IA</div><div class="value">${esc(PROVIDERS[c.provider].name)}</div><div class="hint">${esc(c.model)}</div></div>`
+    : `<p class="muted small">Aún no has configurado la conexión. Pulsa «Cambiar conexión» para ver la pantalla de configuración.</p>`;
+}
+$("#conn-chip").addEventListener("click", openSetup);
+$("#conn-edit").addEventListener("click", openSetup);
+if (STATIC) {
+  renderConnection();
+  if (!LS.get("setup-seen", false)) openSetup();
+}
+
 $("#review-close").addEventListener("click", () => { $("#review").hidden = true; LS.set("review-closed", true); });
 load(); loadRules(); loadSettings();
